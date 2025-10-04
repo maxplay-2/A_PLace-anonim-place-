@@ -5,158 +5,71 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>A Place — анонимность</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: none;
-      margin: 0;
-      padding: 20px;
-      color: #000;
-    }
-    .wrap {
-      width: 100%;
-      max-width: 700px;
-      margin: auto;
-    }
-    h1 {
-      font-size: 24px;
-      margin-bottom: 10px;
-    }
-    p.lead {
-      color: #555;
-      font-size: 14px;
-      margin-bottom: 20px;
-    }
-    .card {
-      border: 1px solid #ccc;
-      border-radius: 8px;
-      padding: 16px;
-      background: #fff;
-    }
-    form.comment-form {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    label {
-      font-size: 14px;
-      color: #333;
-    }
-    textarea {
-      width: 100%;
-      padding: 8px;
-      border-radius: 5px;
-      border: 1px solid #ccc;
-      font-size: 14px;
-      min-height: 80px;
-      resize: vertical;
-    }
-    button {
-      background: #007bff;
-      color: #fff;
-      border: none;
-      padding: 8px 12px;
-      border-radius: 5px;
-      cursor: pointer;
-      width: 150px;
-    }
-    button:hover {
-      background: #0056b3;
-    }
-    .comments-list {
-      margin-top: 20px;
-    }
-    .comment {
-      border-bottom: 1px solid #ddd;
-      padding: 10px 0;
-    }
-    .comment strong {
-      display: block;
-      color: #333;
-    }
-    .comment .small {
-      font-size: 12px;
-      color: #777;
-    }
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; color: #000; }
+    .wrap { width: 100%; max-width: 700px; margin: auto; }
+    .card { border: 1px solid #ccc; border-radius: 8px; padding: 16px; background: #fff; }
+    textarea { width: 100%; padding: 8px; border-radius: 5px; border: 1px solid #ccc; font-size: 14px; min-height: 80px; resize: vertical; }
+    button { background: #007bff; color: #fff; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer; width: 150px; }
+    button:hover { background: #0056b3; }
+    .comment { border-bottom: 1px solid #ddd; padding: 10px 0; }
+    .comment strong { display: block; color: #333; }
+    .comment .small { font-size: 12px; color: #777; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>Комментарии</h1>
-    <p class="lead">анонимный чат для общения.</p>
-
     <div class="card">
-      <form id="commentForm" class="comment-form" autocomplete="off">
-        <label for="text">Комментарий</label>
-        <textarea id="text" name="text" placeholder="Напишите что-нибудь..." required maxlength="1000"></textarea>
-
+      <form id="commentForm">
+        <textarea id="text" placeholder="Напишите что-нибудь..." required maxlength="1000"></textarea>
         <button type="submit">Отправить</button>
       </form>
-
-      <div id="comments" class="comments-list"></div>
-      <p id="summary">Комментариев: 0</p>
+      <div id="comments"></div>
+      <p id="summary"></p>
     </div>
   </div>
 
   <script>
-    (function(){
-      const STORAGE_KEY = 'simple_comments_v1';
-      const form = document.getElementById('commentForm');
-      const textInput = document.getElementById('text');
-      const commentsEl = document.getElementById('comments');
-      const summary = document.getElementById('summary');
+    const form = document.getElementById("commentForm");
+    const textInput = document.getElementById("text");
+    const commentsEl = document.getElementById("comments");
+    const summary = document.getElementById("summary");
 
-      let comments = load();
-      render();
+    async function loadComments() {
+      const res = await fetch("/api/comments");
+      const comments = await res.json();
+      render(comments);
+    }
 
-      form.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const text = textInput.value.trim();
-        if(!text) return;
-        const comment = {
-          id: Date.now(),
-          name: 'Аноним',
-          text: sanitize(text),
-          ts: new Date().toISOString()
-        };
-        comments.unshift(comment);
-        save();
-        render();
-        form.reset();
+    function render(comments) {
+      commentsEl.innerHTML = "";
+      if (comments.length === 0) {
+        commentsEl.innerHTML = "<p>Пока нет комментариев — будьте первым!</p>";
+      } else {
+        comments.forEach((c) => {
+          const div = document.createElement("div");
+          div.className = "comment";
+          div.innerHTML = `<strong>${c.name}</strong><div>${c.text}</div><div class="small">${new Date(c.ts).toLocaleString()}</div>`;
+          commentsEl.appendChild(div);
+        });
+      }
+      summary.textContent = `Комментариев: ${comments.length}`;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const text = textInput.value.trim();
+      if (!text) return;
+      await fetch("/api/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
       });
+      textInput.value = "";
+      loadComments();
+    });
 
-      function render(){
-        commentsEl.innerHTML = '';
-        if(comments.length === 0){
-          commentsEl.innerHTML = '<p>Пока нет комментариев — будьте первым!</p>';
-        } else {
-          comments.forEach(c => commentsEl.appendChild(createCommentNode(c)));
-        }
-        summary.textContent = 'Комментариев: ' + comments.length;
-      }
-
-      function createCommentNode(c){
-        const div = document.createElement('div');
-        div.className = 'comment';
-        div.innerHTML = `<strong>${c.name}</strong><div>${c.text}</div><div class="small">${new Date(c.ts).toLocaleString()}</div>`;
-        return div;
-      }
-
-      function save(){
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(comments));
-      }
-
-      function load(){
-        try {
-          return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-        } catch(e) {
-          return [];
-        }
-      }
-
-      function sanitize(str){
-        return str.replace(/[&<>]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch]));
-      }
-    })();
+    loadComments();
   </script>
 </body>
 </html>
