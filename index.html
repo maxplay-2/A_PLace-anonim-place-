@@ -4,16 +4,22 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>A Place — анонимность</title>
+  <!-- Подключаем hCaptcha -->
+  <script src="https://js.hcaptcha.com/1/api.js" async defer></script>
   <style>
     body { font-family: Arial, sans-serif; margin: 0; padding: 20px; color: #000; }
     .wrap { width: 100%; max-width: 700px; margin: auto; }
     .card { border: 1px solid #ccc; border-radius: 8px; padding: 16px; background: #fff; }
     textarea { width: 100%; padding: 8px; border-radius: 5px; border: 1px solid #ccc; font-size: 14px; min-height: 80px; resize: vertical; }
-    button { background: #007bff; color: #fff; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer; width: 150px; }
+    button { background: #007bff; color: #fff; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer; width: 150px; margin-top: 10px; }
     button:hover { background: #0056b3; }
+    button:disabled { background: #6c757d; cursor: not-allowed; }
     .comment { border-bottom: 1px solid #ddd; padding: 10px 0; }
     .comment strong { display: block; color: #333; }
     .comment .small { font-size: 12px; color: #777; }
+    .h-captcha { margin: 15px 0; }
+    .error { color: #dc3545; font-size: 14px; margin-top: 5px; }
+    .success { color: #28a745; font-size: 14px; margin-top: 5px; }
   </style>
 </head>
 <body>
@@ -22,7 +28,14 @@
     <div class="card">
       <form id="commentForm">
         <textarea id="text" placeholder="Напишите что-нибудь..." required maxlength="1000"></textarea>
-        <button type="submit">Отправить</button>
+        
+        <!-- Контейнер для hCaptcha -->
+        <div class="h-captcha" data-sitekey="0390a386-5808-4d22-ac60-6460ef581f98"></div>
+        
+        <!-- Сообщения об ошибках/успехе -->
+        <div id="message"></div>
+        
+        <button type="submit" id="submitBtn">Отправить</button>
       </form>
       <div id="comments"></div>
       <p id="summary"></p>
@@ -34,11 +47,37 @@
     const textInput = document.getElementById("text");
     const commentsEl = document.getElementById("comments");
     const summary = document.getElementById("summary");
+    const messageEl = document.getElementById("message");
+    const submitBtn = document.getElementById("submitBtn");
+
+    // Функция для показа сообщений
+    function showMessage(text, type = 'error') {
+      messageEl.textContent = text;
+      messageEl.className = type;
+      setTimeout(() => {
+        messageEl.textContent = '';
+        messageEl.className = '';
+      }, 5000);
+    }
+
+    // Функция для сброса капчи
+    function resetCaptcha() {
+      if (window.hcaptcha) {
+        const widgetId = document.querySelector('.h-captcha').getAttribute('data-hcaptcha-widget-id');
+        if (widgetId) {
+          hcaptcha.reset(widgetId);
+        }
+      }
+    }
 
     async function loadComments() {
-      const res = await fetch("/api/comments");
-      const comments = await res.json();
-      render(comments);
+      try {
+        const res = await fetch("/api/comments");
+        const comments = await res.json();
+        render(comments);
+      } catch (error) {
+        console.error('Ошибка загрузки комментариев:', error);
+      }
     }
 
     function render(comments) {
@@ -58,15 +97,66 @@
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+      
       const text = textInput.value.trim();
-      if (!text) return;
-      await fetch("/api/comments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-      textInput.value = "";
-      loadComments();
+      if (!text) {
+        showMessage('Пожалуйста, введите текст комментария');
+        return;
+      }
+
+      // Получаем токен капчи
+      const hcaptchaResponse = document.querySelector('[name="h-captcha-response"]');
+      if (!hcaptchaResponse || !hcaptchaResponse.value) {
+        showMessage('Пожалуйста, пройдите проверку hCaptcha');
+        return;
+      }
+
+      // Блокируем кнопку отправки
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Отправка...';
+
+      try {
+        const response = await fetch("/api/comments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            text: text,
+            'h-captcha-response': hcaptchaResponse.value 
+          }),
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+          // Успешная отправка
+          showMessage('Комментарий успешно отправлен!', 'success');
+          textInput.value = "";
+          resetCaptcha(); // Сбрасываем капчу для следующего комментария
+          loadComments();
+        } else {
+          // Ошибка от сервера
+          showMessage(result.message || 'Ошибка при отправке комментария');
+          resetCaptcha(); // Сбрасываем капчу при ошибке
+        }
+      } catch (error) {
+        console.error('Ошибка:', error);
+        showMessage('Ошибка сети. Попробуйте еще раз.');
+        resetCaptcha(); // Сбрасываем капчу при ошибке сети
+      } finally {
+        // Разблокируем кнопку
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Отправить';
+      }
+    });
+
+    // Обработчик изменения текста - сбрасываем капчу если текст изменился после прохождения
+    textInput.addEventListener('input', () => {
+      const hcaptchaResponse = document.querySelector('[name="h-captcha-response"]');
+      if (hcaptchaResponse && hcaptchaResponse.value) {
+        // Если пользователь меняет текст после прохождения капчи, 
+        // можно сбросить капчу для повторной проверки
+        // resetCaptcha();
+      }
     });
 
     loadComments();
